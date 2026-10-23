@@ -2,7 +2,7 @@ name: astrbot_plugin_qq_login_watch
 display_name: QQ 登录守护
 desc: 监控 SnowLuma 的 QQ 登录状态，掉线时通过 PushPlus 推送提醒并附 noVNC 实时截图，方便重新扫码登录。
 version: 1.0.0
-author: dsh
+author: GTFaiz
 repo: https://github.com/GTFaiz/astrbot_plugin_qq_login_watch
 astrbot_version: ">=4.24.2"
 tags:
