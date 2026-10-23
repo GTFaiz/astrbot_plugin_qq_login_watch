@@ -1,12 +1,13 @@
 # QQ 登录守护（astrbot_plugin_qq_login_watch）
 
-监控 SnowLuma 容器里 QQ 客户端的登录状态。QQ 掉线时通过 **PushPlus** 推送到微信，附带 **noVNC 桌面实时截图**、SSH 隧道命令和 VNC 密码，让你能第一时间扫码或输密码重新登录。
+监控 SnowLuma 容器里 QQ 客户端的登录状态。QQ 掉线时通过 **PushPlus（微信）** 或 **QQ 邮箱 SMTP** 提醒，附带 **noVNC 桌面实时截图**、SSH 隧道命令和 VNC 密码，让你能第一时间扫码或输密码重新登录。
 
 > 起因：QQ 跑在服务器的 noVNC 里，noVNC 端口不对公网开放。一旦 QQ 掉线，既收不到消息也不知道，只能等发现时再想办法。这个插件把「掉线」变成一条能立刻行动的微信推送。
 
 ## 功能
 
 - 每 60 秒检查一次 QQ 登录状态（可配置），掉线立即推送
+- 通知双通道：PushPlus 微信推送 与 QQ 邮箱 SMTP，可单独启用或同时启用
 - 推送内容包含：时间、账号、掉线原因、SSH 隧道命令、VNC 密码、当前桌面截图
 - 离线期间按设定间隔重复提醒（默认 30 分钟），避免漏看
 - 重新登录成功后推送一条恢复通知
@@ -49,7 +50,7 @@ AstrBot 容器没有 Docker 权限，无法直接截 SnowLuma 的屏，所以由
 - 容器内可访问：
   - SnowLuma 的 OneBot HTTP 端口（默认 `192.168.0.2:3000`）
   - 主机 docker0 网关（默认 `192.168.0.1:8765`）
-  - `https://www.pushplus.plus`（微信推送）
+  - `https://www.pushplus.plus`（使用 PushPlus 时）或 `smtp.qq.com:465`（使用邮件时）
 
 ### SnowLuma
 
@@ -57,9 +58,17 @@ AstrBot 容器没有 Docker 权限，无法直接截 SnowLuma 的屏，所以由
 - OneBot HTTP 服务端已开启，并知道其 `accessToken`
 - 建议给 SnowLuma 容器加 `--restart unless-stopped`，避免宿主机重启后 QQ 不在线
 
-### PushPlus
+### 通知渠道（二选一或同时启用）
+
+**PushPlus（微信）**
 
 - 账号需完成**实名认证**（未实名会返回 `code=905`）
+
+**QQ 邮箱 SMTP**
+
+- 登录 QQ 邮箱 → 设置 → 账户 → 开启「SMTP 服务」→ 生成**授权码**
+- 使用授权码而非 QQ 登录密码
+- 默认 `smtp.qq.com:465`（SSL）；也可用 587 + STARTTLS
 
 ## 安装
 
@@ -104,7 +113,14 @@ docker restart astrbot
 | `snowluma_access_token` | SnowLuma OneBot 的 access token |
 | `screenshot_url` | 截屏服务地址，默认 `http://192.168.0.1:8765/shot` |
 | `screenshot_token` | 与 `/etc/qqwatch-screen.token` 一致 |
-| `pushplus_token` | PushPlus 的用户 token |
+| `pushplus_token` | PushPlus 的用户 token（留空则不启用微信推送） |
+| `smtp_enabled` | 是否启用邮件提醒，默认 `false` |
+| `smtp_host` / `smtp_port` | 默认 `smtp.qq.com` / `465` |
+| `smtp_ssl` | 465 端口填 `true`；587 端口填 `false`（自动 STARTTLS） |
+| `smtp_user` | 发件邮箱，如 `123456789@qq.com` |
+| `smtp_password` | 邮箱 SMTP **授权码**（不是登录密码） |
+| `smtp_from` | 发件人，留空则用 `smtp_user` |
+| `smtp_to` | 收件人，多个用逗号分隔 |
 | `ssh_host` / `ssh_port` | 服务器公网 IP / SSH 端口，用于生成隧道命令 |
 | `vnc_password` | 可选，填写后会显示在推送里 |
 
@@ -115,7 +131,7 @@ docker restart astrbot
 在 QQ 里发送：
 
 - `/qqwatch` —— 看状态
-- `/qqwatch test` —— 发一条带截图的测试推送
+- `/qqwatch test` —— 按已启用的渠道各发一条测试消息，并回报每个渠道的成功/失败
 
 ## 指令
 
@@ -138,7 +154,7 @@ ssh -p 22 -L 6081:127.0.0.1:6081 root@<服务器IP>
 
 1. **二维码约 2 分钟过期**：收到推送请尽快扫码；过期需在 noVNC 里点「刷新」再截。
 2. **QQ 最小化到托盘时截图是空桌面**：Electron 窗口被隐藏后不重绘。真实掉线时 QQ 会自行弹出登录窗，届时截图正常。
-3. **PushPlus 的微信模板对内嵌 base64 图片的渲染不保证**：若图片未显示，可改用邮件通道，或把截图放到可访问的 URL 再推送。
+3. **PushPlus 的微信模板对内嵌 base64 图片的渲染不保证**：若图片未显示，可启用邮件通道——邮件用 `cid` 内嵌图片，兼容性更好。
 4. 截图服务依赖 `docker exec`，SnowLuma 容器名变更时需同步修改 `QQWATCH_CONTAINER`。
 
 ## 安全说明
@@ -146,7 +162,8 @@ ssh -p 22 -L 6081:127.0.0.1:6081 root@<服务器IP>
 - 截图服务只监听 docker0 网关（`192.168.0.1`），不对公网开放，且需要 token。
 - `vnc_password` 会出现在微信推送内容里，介意的话留空。
 - 不要把 noVNC 的 6081 端口直接暴露到公网；推荐 SSH 隧道。
-- SnowLuma 的 OneBot token 与 PushPlus token 都保存在 AstrBot 的插件配置中，注意 `data/config/` 的权限。
+- SnowLuma 的 OneBot token、PushPlus token、邮箱 SMTP 授权码都保存在 AstrBot 的插件配置中，注意 `data/config/` 的权限。
+- 建议使用专用邮箱或邮箱别名发送，便于随时吊销授权码。
 
 ## 目录结构
 

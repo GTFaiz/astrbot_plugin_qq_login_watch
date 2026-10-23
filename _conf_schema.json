@@ -59,6 +59,54 @@
     "default": "",
     "hint": "在 pushplus.plus 登录后获取，用于微信推送"
   },
+  "smtp_enabled": {
+    "description": "启用邮件提醒（QQ 邮箱 SMTP）",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后掉线提醒会同时发送到指定邮箱，可与 PushPlus 并存"
+  },
+  "smtp_host": {
+    "description": "SMTP 服务器",
+    "type": "string",
+    "default": "smtp.qq.com",
+    "hint": "QQ 邮箱为 smtp.qq.com；企业邮箱为 smtp.exmail.qq.com"
+  },
+  "smtp_port": {
+    "description": "SMTP 端口",
+    "type": "int",
+    "default": 465,
+    "hint": "SSL 用 465，STARTTLS 用 587"
+  },
+  "smtp_ssl": {
+    "description": "使用 SSL 直连",
+    "type": "bool",
+    "default": true,
+    "hint": "465 端口选 true；587 端口选 false（会自动 STARTTLS）"
+  },
+  "smtp_user": {
+    "description": "SMTP 账号",
+    "type": "string",
+    "default": "",
+    "hint": "完整邮箱地址，如 123456789@qq.com"
+  },
+  "smtp_password": {
+    "description": "SMTP 授权码",
+    "type": "string",
+    "default": "",
+    "hint": "QQ 邮箱设置 → 账户 → 开启 SMTP 服务后生成的授权码，不是登录密码"
+  },
+  "smtp_from": {
+    "description": "发件人地址",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 smtp_user"
+  },
+  "smtp_to": {
+    "description": "收件人地址",
+    "type": "string",
+    "default": "",
+    "hint": "多个地址用逗号分隔，如 a@qq.com,b@qq.com"
+  },
   "novnc_url": {
     "description": "noVNC 访问地址",
     "type": "string",
