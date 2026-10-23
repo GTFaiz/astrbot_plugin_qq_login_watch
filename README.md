@@ -7,7 +7,7 @@
 ## 功能
 
 - 每 60 秒检查一次 QQ 登录状态（可配置），掉线立即推送
-- 通知双通道：PushPlus 微信推送 与 QQ 邮箱 SMTP，可单独启用或同时启用
+- 通知渠道自由组合：仅 PushPlus、仅邮箱、或两者同时启用（`pushplus_enabled` / `smtp_enabled` 独立控制）
 - 推送内容包含：时间、账号、掉线原因、SSH 隧道命令、VNC 密码、当前桌面截图
 - 离线期间按设定间隔重复提醒（默认 30 分钟），避免漏看
 - 重新登录成功后推送一条恢复通知
@@ -113,7 +113,8 @@ docker restart astrbot
 | `snowluma_access_token` | SnowLuma OneBot 的 access token |
 | `screenshot_url` | 截屏服务地址，默认 `http://192.168.0.1:8765/shot` |
 | `screenshot_token` | 与 `/etc/qqwatch-screen.token` 一致 |
-| `pushplus_token` | PushPlus 的用户 token（留空则不启用微信推送） |
+| `pushplus_enabled` | 是否启用 PushPlus，默认 `true`（token 为空时仍会跳过） |
+| `pushplus_token` | PushPlus 的用户 token |
 | `smtp_enabled` | 是否启用邮件提醒，默认 `false` |
 | `smtp_host` / `smtp_port` | 默认 `smtp.qq.com` / `465` |
 | `smtp_ssl` | 465 端口填 `true`；587 端口填 `false`（自动 STARTTLS） |
@@ -123,6 +124,8 @@ docker restart astrbot
 | `smtp_to` | 收件人，多个用逗号分隔 |
 | `ssh_host` / `ssh_port` | 服务器公网 IP / SSH 端口，用于生成隧道命令 |
 | `vnc_password` | 可选，填写后会显示在推送里 |
+
+三种组合都支持：只开 `pushplus_enabled`、只开 `smtp_enabled`、或两者都开；两者都关时不会发送任何提醒。
 
 `novnc_url` 与 `ssh_host` 二选一：填了 `novnc_url` 就推链接；否则用 `ssh_host` 生成 `ssh -L` 隧道命令。
 
@@ -177,6 +180,10 @@ astrbot_plugin_qq_login_watch/
     ├── qqwatch-screen.py       # 主机侧截屏 HTTP 服务
     └── qqwatch-screen.service  # systemd 单元
 ```
+
+## 更新日志
+
+见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## License
 

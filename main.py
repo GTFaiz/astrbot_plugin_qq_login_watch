@@ -26,9 +26,9 @@ from astrbot.api.star import Context, Star, register
 
 @register(
     "astrbot_plugin_qq_login_watch",
-    "dsh",
-    "监控 SnowLuma 的 QQ 登录状态，掉线时推送提醒并附 noVNC 实时截图",
-    "1.0.0",
+    "GTFaiz",
+    "监控 SnowLuma 的 QQ 登录状态，掉线时通过 PushPlus 或邮箱提醒并附 noVNC 实时截图",
+    "1.1.1",
 )
 class QQLoginWatch(Star):
     def __init__(self, context: Context, config=None):
@@ -267,6 +267,8 @@ class QQLoginWatch(Star):
         sender = str(self._c("smtp_from", "")).strip() or user
         raw_to = str(self._c("smtp_to", "")).replace(";", ",")
         recipients = [addr.strip() for addr in raw_to.split(",") if addr.strip()]
+        if not recipients and user:
+            recipients = [user]  # 未填收件人时默认发给自己
 
         if not (user and password and recipients):
             logger.warning(
@@ -318,7 +320,10 @@ class QQLoginWatch(Star):
     async def _notify_all(self, title: str, html: str, shot: bytes | None) -> dict[str, str]:
         """向所有已启用的渠道发送，返回各渠道结果。"""
         results: dict[str, str] = {}
-        if str(self._c("pushplus_token", "")).strip():
+        pushplus_on = bool(self._c("pushplus_enabled", True)) and bool(
+            str(self._c("pushplus_token", "")).strip()
+        )
+        if pushplus_on:
             ok = await self._push(title, html + self._img_tag(shot, data_uri=True))
             results["pushplus"] = "ok" if ok else "fail"
         if bool(self._c("smtp_enabled", False)):
@@ -366,5 +371,13 @@ class QQLoginWatch(Star):
         if self._online is False:
             lines.append(f"离线开始：{self._fmt(self._offline_since)}")
             lines.append(f"最后错误：{self._last_error or '未知'}")
+        channels = []
+        if bool(self._c("pushplus_enabled", True)) and str(
+            self._c("pushplus_token", "")
+        ).strip():
+            channels.append("PushPlus")
+        if bool(self._c("smtp_enabled", False)):
+            channels.append("邮件")
+        lines.append("通知渠道：" + ("、".join(channels) if channels else "未启用"))
         lines.append(f"检查间隔：{self._c('check_interval_seconds', 60)}s")
         yield event.plain_result("\n".join(lines))

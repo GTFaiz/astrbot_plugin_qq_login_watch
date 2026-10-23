@@ -1,4 +1,4 @@
-{
+﻿{
   "enabled": {
     "description": "启用监控",
     "type": "bool",
@@ -52,6 +52,12 @@
     "type": "string",
     "default": "",
     "hint": "与主机 /etc/qqwatch-screen.token 内容一致"
+  },
+  "pushplus_enabled": {
+    "description": "启用 PushPlus 微信推送",
+    "type": "bool",
+    "default": true,
+    "hint": "可单独启用；配合「启用邮件提醒」可同时使用两个渠道"
   },
   "pushplus_token": {
     "description": "PushPlus token",
