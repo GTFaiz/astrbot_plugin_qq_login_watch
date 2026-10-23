@@ -1,0 +1,92 @@
+{
+  "enabled": {
+    "description": "启用监控",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后不会进行任何检查与推送"
+  },
+  "snowluma_api_base": {
+    "description": "SnowLuma OneBot 地址",
+    "type": "string",
+    "default": "http://192.168.0.2:3000",
+    "hint": "AstrBot 容器可直连 SnowLuma 容器，默认使用其内网 IP"
+  },
+  "snowluma_access_token": {
+    "description": "OneBot access token",
+    "type": "string",
+    "default": "",
+    "hint": "SnowLuma 的 HTTP 服务端 token，用于调用 get_login_info"
+  },
+  "check_interval_seconds": {
+    "description": "检查间隔（秒）",
+    "type": "int",
+    "default": 60,
+    "hint": "建议 60 秒，最小 15 秒"
+  },
+  "offline_renotify_minutes": {
+    "description": "离线重复提醒间隔（分钟）",
+    "type": "int",
+    "default": 30,
+    "hint": "仍处于离线状态时每隔多久再提醒一次，0 表示不重复"
+  },
+  "notify_on_recovery": {
+    "description": "恢复在线时通知",
+    "type": "bool",
+    "default": true,
+    "hint": "检测到 QQ 重新登录成功时推送一条恢复消息"
+  },
+  "attach_screenshot": {
+    "description": "附带实时截图",
+    "type": "bool",
+    "default": true,
+    "hint": "掉线提醒里附带 noVNC 桌面截图，方便直接扫码"
+  },
+  "screenshot_url": {
+    "description": "截图服务地址",
+    "type": "string",
+    "default": "http://192.168.0.1:8765/shot",
+    "hint": "主机侧 qqwatch-screen.service 提供的接口"
+  },
+  "screenshot_token": {
+    "description": "截图服务 token",
+    "type": "string",
+    "default": "",
+    "hint": "与主机 /etc/qqwatch-screen.token 内容一致"
+  },
+  "pushplus_token": {
+    "description": "PushPlus token",
+    "type": "string",
+    "default": "",
+    "hint": "在 pushplus.plus 登录后获取，用于微信推送"
+  },
+  "novnc_url": {
+    "description": "noVNC 访问地址",
+    "type": "string",
+    "default": "",
+    "hint": "例如 http://1.2.3.4:6081/vnc.html，会附在提醒里"
+  },
+  "ssh_host": {
+    "description": "SSH 隧道主机",
+    "type": "string",
+    "default": "",
+    "hint": "填写服务器公网 IP 或域名；novnc_url 为空时，推送会给出 ssh -L 隧道命令"
+  },
+  "ssh_port": {
+    "description": "SSH 端口",
+    "type": "int",
+    "default": 22,
+    "hint": "用于生成隧道命令"
+  },
+  "vnc_password": {
+    "description": "noVNC 密码（可选）",
+    "type": "string",
+    "default": "",
+    "hint": "填写后会显示在推送内容中，方便直接登录"
+  },
+  "command_admin_only": {
+    "description": "指令仅管理员可用",
+    "type": "bool",
+    "default": true,
+    "hint": "限制 /qqwatch test 等指令只对 AstrBot 管理员开放"
+  }
+}

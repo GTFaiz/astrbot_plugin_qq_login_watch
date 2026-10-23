@@ -1,0 +1,16 @@
+[Unit]
+Description=QQ login watch - live screenshot endpoint for SnowLuma noVNC desktop
+After=docker.service docker0-addr.service
+Wants=docker0-addr.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/qqwatch-screen.py
+Restart=always
+RestartSec=5
+Environment=QQWATCH_BIND=192.168.0.1
+Environment=QQWATCH_PORT=8765
+
+[Install]
+WantedBy=multi-user.target
