@@ -9,6 +9,7 @@
 
 import asyncio
 import base64
+import io
 import smtplib
 import ssl
 import time
@@ -23,12 +24,24 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
+# PushPlus 单条内容上限 2 万字（超出返回 code=999），留出余量给 HTML 正文
+PUSHPLUS_MAX_CONTENT = 18000
+# 内嵌到 PushPlus 的截图最长边与 JPEG 质量，base64 后约 1 万字
+PUSHPLUS_IMG_WIDTH = 640
+PUSHPLUS_IMG_QUALITY = 50
+
+SMTP_AUTH_HINT = (
+    "SMTP 认证失败：请检查 smtp_user 是否为完整邮箱地址、"
+    "smtp_password 是否为邮箱「授权码」（不是登录密码），"
+    "并确认已在邮箱设置中开启 SMTP 服务"
+)
+
 
 @register(
     "astrbot_plugin_qq_login_watch",
     "GTFaiz",
     "监控 SnowLuma 的 QQ 登录状态，掉线时通过 PushPlus 或邮箱提醒并附 noVNC 实时截图",
-    "1.1.1",
+    "1.1.2",
 )
 class QQLoginWatch(Star):
     def __init__(self, context: Context, config=None):
@@ -185,6 +198,27 @@ class QQLoginWatch(Star):
             logger.warning("[qq-login-watch] 截图失败: %s", exc)
         return None
 
+    @staticmethod
+    def _shrink_jpeg(
+        shot: bytes,
+        max_width: int = PUSHPLUS_IMG_WIDTH,
+        quality: int = PUSHPLUS_IMG_QUALITY,
+    ) -> bytes:
+        """压缩截图，避免 base64 后撑爆 PushPlus 的 2 万字上限。"""
+        try:
+            from PIL import Image
+
+            with Image.open(io.BytesIO(shot)) as img:
+                img = img.convert("RGB")
+                if img.width > max_width:
+                    img.thumbnail((max_width, 100000), Image.LANCZOS)
+                out = io.BytesIO()
+                img.save(out, "JPEG", quality=quality, optimize=True, progressive=True)
+            return out.getvalue()
+        except Exception as exc:  # noqa: BLE001 - 压图失败就退回原图
+            logger.debug("[qq-login-watch] 截图压缩失败，使用原图: %s", exc)
+            return shot
+
     # ---------------------------------------------------------------- push
     async def _notify_offline(self, err: str):
         shot = await self._fetch_shot()
@@ -218,11 +252,43 @@ class QQLoginWatch(Star):
 
         await self._notify_all("QQ 掉线提醒", "".join(parts), shot)
 
-    async def _push(self, title: str, content: str) -> bool:
+    async def _push(
+        self, title: str, content: str, shot: bytes | None = None
+    ) -> tuple[bool, str]:
+        """PushPlus 推送，返回 (是否成功, 说明)。"""
         token = str(self._c("pushplus_token", "")).strip()
         if not token:
             logger.warning("[qq-login-watch] 未配置 pushplus_token，跳过推送")
-            return False
+            return False, "未配置 pushplus_token"
+
+        with_image = ""
+        if shot:
+            with_image = content + self._img_tag(self._shrink_jpeg(shot), data_uri=True)
+        if with_image and len(with_image) <= PUSHPLUS_MAX_CONTENT:
+            ok, detail = await self._post_push(token, title, with_image)
+            if ok:
+                return True, ""
+            if "999" not in detail:
+                return False, detail
+            logger.warning(
+                "[qq-login-watch] PushPlus 返回 999，降级为纯文字重试（内容 %s 字）",
+                len(with_image),
+            )
+        elif with_image:
+            logger.warning(
+                "[qq-login-watch] PushPlus 内容超限（%s 字），省略截图",
+                len(with_image),
+            )
+
+        text_only = content + (
+            "<p>（截图较大已省略，请打开 noVNC 查看。）</p>" if shot else ""
+        )
+        if len(text_only) > PUSHPLUS_MAX_CONTENT:
+            text_only = text_only[: PUSHPLUS_MAX_CONTENT - 20] + "…"
+        ok, detail = await self._post_push(token, title, text_only)
+        return (True, "截图已省略") if ok else (False, detail)
+
+    async def _post_push(self, token: str, title: str, content: str) -> tuple[bool, str]:
         payload = {
             "token": token,
             "title": title,
@@ -239,11 +305,13 @@ class QQLoginWatch(Star):
                 body = await resp.json(content_type=None)
                 if resp.status == 200 and body.get("code") == 200:
                     logger.info("[qq-login-watch] 推送成功: %s", title)
-                    return True
-                logger.error("[qq-login-watch] 推送失败: %s %s", resp.status, body)
+                    return True, ""
+                detail = f"HTTP {resp.status} {body}"
+                logger.error("[qq-login-watch] 推送失败: %s", detail)
+                return False, detail
         except Exception as exc:  # noqa: BLE001
             logger.error("[qq-login-watch] 推送异常: %s", exc)
-        return False
+            return False, f"{type(exc).__name__}: {exc}"
 
     # ---------------------------------------------------------------- email
     @staticmethod
@@ -258,15 +326,19 @@ class QQLoginWatch(Star):
             )
         return '<p><img src="cid:qqscreenshot" style="max-width:100%"/></p>'
 
-    async def _send_email(self, title: str, html: str, shot: bytes | None) -> bool:
+    async def _send_email(
+        self, title: str, html: str, shot: bytes | None
+    ) -> tuple[bool, str]:
         host = str(self._c("smtp_host", "smtp.qq.com")).strip()
         port = int(self._c("smtp_port", 465))
         use_ssl = bool(self._c("smtp_ssl", True))
         user = str(self._c("smtp_user", "")).strip()
         password = str(self._c("smtp_password", "")).strip()
-        sender = str(self._c("smtp_from", "")).strip() or user
+        sender = str(self._c("smtp_from", "")).strip()
         raw_to = str(self._c("smtp_to", "")).replace(";", ",")
-        recipients = [addr.strip() for addr in raw_to.split(",") if addr.strip()]
+        recipients = [
+            addr.strip() for addr in raw_to.split(",") if "@" in addr.strip()
+        ]
         if not recipients and user:
             recipients = [user]  # 未填收件人时默认发给自己
 
@@ -274,7 +346,16 @@ class QQLoginWatch(Star):
             logger.warning(
                 "[qq-login-watch] SMTP 配置不完整（smtp_user / smtp_password / smtp_to），跳过邮件"
             )
-            return False
+            return False, "SMTP 配置不完整"
+        if "@" not in user:
+            logger.error("[qq-login-watch] smtp_user 需填写完整邮箱地址，当前为 %r", user)
+            return False, "smtp_user 不是完整邮箱地址"
+        if not sender or "@" not in sender:
+            if sender:
+                logger.warning(
+                    "[qq-login-watch] smtp_from=%r 不是有效邮箱，改用 smtp_user", sender
+                )
+            sender = user  # QQ 邮箱要求 From 与登录账号一致
 
         root = MIMEMultipart("related")
         root["Subject"] = title
@@ -295,40 +376,72 @@ class QQLoginWatch(Star):
                 self._smtp_send, host, port, use_ssl, user, password, root
             )
             logger.info("[qq-login-watch] 邮件已发送: %s", title)
-            return True
+            return True, ""
         except Exception as exc:  # noqa: BLE001
             logger.error("[qq-login-watch] 邮件发送失败: %s", exc)
-            return False
+            return False, str(exc)
 
     @staticmethod
-    def _smtp_send(host: str, port: int, use_ssl: bool, user: str, password: str, msg) -> None:
-        if use_ssl:
-            server = smtplib.SMTP_SSL(host, port, timeout=25)
-        else:
-            server = smtplib.SMTP(host, port, timeout=25)
+    def _smtp_login(server: smtplib.SMTP, user: str, password: str) -> None:
+        """优先用 AUTH PLAIN，好让服务器把 535 的真实原因返回而不是直接断开。"""
+        server.ehlo_or_helo_if_needed()
+        response = base64.b64encode(f"\0{user}\0{password}".encode()).decode()
+        code, resp = server.docmd("AUTH", "PLAIN " + response)
+        if code in (235, 503):  # 认证成功 / 已认证
+            return
+        if code in (500, 501, 504):  # 服务器不支持 initial-response，退回标准登录
+            server.login(user, password)
+            return
+        raise smtplib.SMTPAuthenticationError(code, resp)
+
+    @classmethod
+    def _smtp_send(
+        cls, host: str, port: int, use_ssl: bool, user: str, password: str, msg
+    ) -> None:
+        try:
+            if use_ssl:
+                server = smtplib.SMTP_SSL(host, port, timeout=25)
+            else:
+                server = smtplib.SMTP(host, port, timeout=25)
+        except (OSError, ssl.SSLError) as exc:
+            raise RuntimeError(
+                f"连接 {host}:{port} 失败（{type(exc).__name__}: {exc}），"
+                "请检查端口是否被封、smtp_host/smtp_port/smtp_ssl 是否匹配"
+            ) from exc
         try:
             if not use_ssl:
                 server.starttls(context=ssl.create_default_context())
-            server.login(user, password)
+            cls._smtp_login(server, user, password)
             server.send_message(msg)
+        except smtplib.SMTPAuthenticationError as exc:
+            raise RuntimeError(
+                f"{SMTP_AUTH_HINT}；服务器返回 {exc.smtp_code} "
+                f"{exc.smtp_error!r}"
+            ) from exc
+        except smtplib.SMTPServerDisconnected as exc:
+            raise RuntimeError(
+                f"{SMTP_AUTH_HINT}；服务器在认证阶段直接断开连接"
+            ) from exc
+        except smtplib.SMTPException as exc:
+            raise RuntimeError(f"SMTP 发送失败: {exc}") from exc
         finally:
             try:
                 server.quit()
             except Exception:  # noqa: BLE001 - best effort
                 pass
 
-    async def _notify_all(self, title: str, html: str, shot: bytes | None) -> dict[str, str]:
-        """向所有已启用的渠道发送，返回各渠道结果。"""
-        results: dict[str, str] = {}
+    async def _notify_all(
+        self, title: str, html: str, shot: bytes | None
+    ) -> dict[str, tuple[bool, str]]:
+        """向所有已启用的渠道发送，返回 {渠道: (是否成功, 说明)}。"""
+        results: dict[str, tuple[bool, str]] = {}
         pushplus_on = bool(self._c("pushplus_enabled", True)) and bool(
             str(self._c("pushplus_token", "")).strip()
         )
         if pushplus_on:
-            ok = await self._push(title, html + self._img_tag(shot, data_uri=True))
-            results["pushplus"] = "ok" if ok else "fail"
+            results["pushplus"] = await self._push(title, html, shot)
         if bool(self._c("smtp_enabled", False)):
-            ok = await self._send_email(title, html, shot)
-            results["email"] = "ok" if ok else "fail"
+            results["email"] = await self._send_email(title, html, shot)
         if not results:
             logger.warning("[qq-login-watch] 未启用任何通知渠道（PushPlus / SMTP）")
         return results
@@ -356,8 +469,9 @@ class QQLoginWatch(Star):
                 return
             names = {"pushplus": "PushPlus", "email": "邮件"}
             detail = "；".join(
-                f"{names.get(k, k)}：{'成功' if v == 'ok' else '失败'}"
-                for k, v in results.items()
+                f"{names.get(k, k)}：{'成功' if ok else '失败'}"
+                + (f"（{msg}）" if msg else "")
+                for k, (ok, msg) in results.items()
             )
             yield event.plain_result(f"测试推送 —— {detail}")
             return

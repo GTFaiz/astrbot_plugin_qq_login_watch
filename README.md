@@ -9,6 +9,7 @@
 - 每 60 秒检查一次 QQ 登录状态（可配置），掉线立即推送
 - 通知渠道自由组合：仅 PushPlus、仅邮箱、或两者同时启用（`pushplus_enabled` / `smtp_enabled` 独立控制）
 - 推送内容包含：时间、账号、掉线原因、SSH 隧道命令、VNC 密码、当前桌面截图
+- 截图自动压缩以适配 PushPlus 单条 2 万字上限，超限时自动降级为纯文字推送，不会丢提醒
 - 离线期间按设定间隔重复提醒（默认 30 分钟），避免漏看
 - 重新登录成功后推送一条恢复通知
 - 指令 `/qqwatch` 查看状态，`/qqwatch test` 发送测试推送
@@ -120,7 +121,7 @@ docker restart astrbot
 | `smtp_ssl` | 465 端口填 `true`；587 端口填 `false`（自动 STARTTLS） |
 | `smtp_user` | 发件邮箱，如 `123456789@qq.com` |
 | `smtp_password` | 邮箱 SMTP **授权码**（不是登录密码） |
-| `smtp_from` | 发件人，留空则用 `smtp_user` |
+| `smtp_from` | 发件人，留空或不是合法邮箱时用 `smtp_user`（QQ 邮箱要求与登录账号一致） |
 | `smtp_to` | 收件人，多个用逗号分隔 |
 | `ssh_host` / `ssh_port` | 服务器公网 IP / SSH 端口，用于生成隧道命令 |
 | `vnc_password` | 可选，填写后会显示在推送里 |
@@ -157,7 +158,8 @@ ssh -p 22 -L 6081:127.0.0.1:6081 root@<服务器IP>
 
 1. **二维码约 2 分钟过期**：收到推送请尽快扫码；过期需在 noVNC 里点「刷新」再截。
 2. **QQ 最小化到托盘时截图是空桌面**：Electron 窗口被隐藏后不重绘。真实掉线时 QQ 会自行弹出登录窗，届时截图正常。
-3. **PushPlus 的微信模板对内嵌 base64 图片的渲染不保证**：若图片未显示，可启用邮件通道——邮件用 `cid` 内嵌图片，兼容性更好。
+3. **PushPlus 对内嵌 base64 图片的渲染不保证**：若图片未显示，可启用邮件通道——邮件用 `cid` 内嵌图片，兼容性更好。
+   PushPlus 单条内容上限 2 万字，插件会把截图压到 640px / JPEG 50 再内嵌；万一仍超限，会自动改发纯文字（并提示打开 noVNC）。
 4. 截图服务依赖 `docker exec`，SnowLuma 容器名变更时需同步修改 `QQWATCH_CONTAINER`。
 
 ## 安全说明
